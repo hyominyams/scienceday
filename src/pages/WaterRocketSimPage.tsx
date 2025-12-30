@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { SimConfig } from '../simulation'
 import type { useWaterRocketSim } from '../simulation'
 import { defaultConfig } from '../simulation'
@@ -25,6 +25,61 @@ export function WaterRocketSimPage({
   onApplyConfig,
   onForceCameraFollow,
 }: WaterRocketSimPageProps) {
+  const startAudioRef = useRef<HTMLAudioElement | null>(null)
+  const endAudioRef = useRef<HTMLAudioElement | null>(null)
+  const startStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevPhaseRef = useRef(sim.phase)
+
+  useEffect(() => {
+    startAudioRef.current = new Audio('/sound/rocket_start.mp3')
+    startAudioRef.current.preload = 'auto'
+
+    endAudioRef.current = new Audio('/sound/rocket_end.wav')
+    endAudioRef.current.preload = 'auto'
+    endAudioRef.current.loop = true
+
+    return () => {
+      if (startStopTimer.current) clearTimeout(startStopTimer.current)
+      startAudioRef.current?.pause()
+      endAudioRef.current?.pause()
+    }
+  }, [])
+
+  const playStartSnippet = () => {
+    const audio = startAudioRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = Math.min(2, audio.duration || 2)
+      audio.play().catch(() => {})
+      if (startStopTimer.current) clearTimeout(startStopTimer.current)
+      startStopTimer.current = setTimeout(() => {
+        audio.pause()
+        audio.currentTime = 0
+      }, 1000)
+    } catch {
+      /* ignore playback errors */
+    }
+  }
+
+  const startEndLoop = () => {
+    const audio = endAudioRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = Math.min(7, audio.duration || 7)
+      audio.loop = true
+      audio.play().catch(() => {})
+    } catch {
+      /* ignore playback errors */
+    }
+  }
+
+  const stopEndLoop = () => {
+    const audio = endAudioRef.current
+    if (!audio) return
+    audio.pause()
+    audio.currentTime = 0
+  }
+
   const handleGoSetup = () => {
     sim.reset()
     onBackToSetup()
@@ -35,6 +90,30 @@ export function WaterRocketSimPage({
       onForceCameraFollow()
     }
   }, [sim.phase, cameraMode, onForceCameraFollow])
+
+  useEffect(() => {
+    const prevPhase = prevPhaseRef.current
+    const phase = sim.phase
+
+    // Launch start sound
+    if (phase === 'powered' && prevPhase !== 'powered') {
+      playStartSnippet()
+      startEndLoop()
+    }
+
+    // keep end sound during powered/coasting/fail-bounce
+    if (phase === 'coasting' || phase === 'fail-bounce') {
+      if (endAudioRef.current?.paused) startEndLoop()
+    }
+
+    // stop end sound on landing or final failure
+    if (phase === 'landed' || phase === 'failed') {
+      stopEndLoop()
+    }
+
+    // store prev
+    prevPhaseRef.current = phase
+  }, [sim.phase])
 
   const failureMessage = sim.failReason ?? '압력과 물 비율을 조정해주세요.'
 
